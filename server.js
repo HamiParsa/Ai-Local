@@ -12,95 +12,99 @@ app.use(express.json());
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-app.use(express.static(path.join(__dirname, ".")));
+// Serve static files
+app.use(express.static(__dirname));
+app.use('/chat', express.static(path.join(__dirname, 'chat')));
 
-// مدل‌های فعال گیت‌هاب (آوریل 2026)
+// Available GitHub Models
 const MODELS = { 
-  assistant1: "openai/gpt-4o-mini",      // سریع و ارزان
-  assistant2: "openai/gpt-4o",            // قدرتمندتر
-  assistant3: "meta/llama-3.2-90b-vision", // Llama
-  assistant4: "deepseek/DeepSeek-R1"       // DeepSeek
+  assistant1: "openai/gpt-4o-mini",
+  assistant2: "openai/gpt-4o",
+  assistant3: "meta/llama-3.2-90b-vision",
+  assistant4: "deepseek/deepseek-r1"
 };
 
-// پرامپت عمومی - مثل ChatGPT
 const BASE_PROMPT = `
 You are a helpful, friendly, and knowledgeable AI assistant. 
-You can answer questions about any topic, help with coding, explain concepts, 
-provide advice, and engage in natural conversation.
-
-Guidelines:
-- Respond in the same language as the user
-- Be accurate and truthful
-- If you don't know something, say so honestly
-- Be helpful and concise
-- Think step by step for complex problems
+Respond in the same language as the user. Be accurate and concise.
 `.trim();
 
 app.post("/chat", async (req, res) => {
   const token = process.env.GITHUB_TOKEN;
   if (!token) {
     console.error("❌ Missing GITHUB_TOKEN in .env file");
-    return res.status(500).json({ error: "Missing GITHUB_TOKEN. Please add it to .env file" });
+    return res.status(500).json({ error: "Missing GITHUB_TOKEN" });
   }
 
   const { messages, model = "assistant1", temperature = 0.7, maxTokens = 2000 } = req.body;
   
-  // ساخت پیام‌ها با سیستم پرامپت
+  if (!MODELS[model]) {
+    return res.status(400).json({ error: `Invalid model. Use: ${Object.keys(MODELS).join(', ')}` });
+  }
+  
   const systemMessage = { role: "system", content: BASE_PROMPT };
   const allMessages = [systemMessage, ...(messages || [])];
-  
-  // فقط آخرین 20 پیام را نگه دار (برای جلوگیری از مصرف زیاد توکن)
   const recentMessages = allMessages.slice(-20);
 
-  console.log(`📡 Sending request to GitHub API with model: ${MODELS[model]}`);
+  console.log(`📡 Sending request with model: ${MODELS[model]}`);
 
-  try {
-    // آدرس صحیح GitHub Models API
-    const resp = await fetch("https://models.github.ai/inference", {
-      method: "POST",
-      headers: {
-        "Authorization": `Bearer ${token}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: MODELS[model],
-        messages: recentMessages,
-        temperature: temperature,
-        max_tokens: maxTokens,
-        stream: false
-      }),
-    });
-
-    if (!resp.ok) {
-      const errText = await resp.text();
-      console.error("❌ API error:", resp.status, errText);
+  // Try alternative endpoint to avoid ECONNRESET
+  const endpoints = [
+    "https://models.github.ai/inference/chat/completions",
+    "https://api.github.com/marketplace/models/inference/chat",
+    "https://models.inference.github.ai/chat/completions"
+  ];
+  
+  let lastError = null;
+  
+  for (const endpoint of endpoints) {
+    try {
+      console.log(`🔄 Trying endpoint: ${endpoint}`);
       
-      if (resp.status === 401) {
-        return res.status(401).json({ error: "Invalid GitHub token. Please check your token." });
-      }
-      if (resp.status === 429) {
-        return res.status(429).json({ error: "Rate limit exceeded. Please wait a moment." });
-      }
-      
-      return res.status(resp.status).json({ error: `API error: ${resp.status}` });
-    }
+      const resp = await fetch(endpoint, {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${token}`,
+          "Content-Type": "application/json",
+          "Accept": "application/json"
+        },
+        body: JSON.stringify({
+          model: MODELS[model],
+          messages: recentMessages,
+          temperature: temperature,
+          max_tokens: maxTokens,
+          stream: false
+        }),
+      });
 
-    const data = await resp.json();
-    console.log("✅ Response received successfully");
-    res.json(data);
-    
-  } catch (err) {
-    console.error("❌ Server error:", err.message);
-    
-    if (err.code === 'ENOTFOUND' || err.message.includes('fetch failed')) {
-      res.status(503).json({ error: "Cannot reach GitHub API. Please check your internet connection or use a VPN." });
-    } else {
-      res.status(500).json({ error: err.message });
+      if (resp.ok) {
+        const data = await resp.json();
+        console.log(`✅ Success with endpoint: ${endpoint}`);
+        return res.json(data);
+      } else {
+        const errText = await resp.text();
+        console.log(`⚠️ Endpoint ${endpoint} returned ${resp.status}`);
+        lastError = { status: resp.status, error: errText };
+      }
+    } catch (err) {
+      console.log(`❌ Endpoint ${endpoint} failed: ${err.message}`);
+      lastError = err;
     }
   }
+  
+  // If all endpoints fail
+  console.error("❌ All endpoints failed");
+  if (lastError?.status === 401) {
+    return res.status(401).json({ 
+      error: "Invalid GitHub token. Make sure you're using a fine-grained token with 'Models: Read-only' permission under Account Permissions." 
+    });
+  }
+  
+  return res.status(503).json({ 
+    error: "Network error: Cannot reach GitHub API. This might be due to firewall restrictions. Try using a VPN or different network." 
+  });
 });
 
-// مسیرهای HTML
 app.get("/", (req, res) => {
   res.sendFile(path.join(__dirname, "index.html"));
 });
