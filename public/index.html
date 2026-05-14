@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AI Chatbot - GitHub Models</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="container">
+    <div class="chat-header">
+      <h1>🤖 AI Chatbot</h1>
+      <p>Powered by GitHub Models</p>
+      <button id="resetBtn" class="reset-btn">New Chat</button>
+    </div>
+    
+    <div class="chat-messages" id="chatMessages">
+      <div class="message assistant">
+        <div class="avatar">🤖</div>
+        <div class="content">
+          <strong>Assistant:</strong>
+          <p>Hello! I'm an AI assistant. How can I help you today?</p>
+        </div>
+      </div>
+    </div>
+    
+    <div class="chat-input-container">
+      <textarea 
+        id="messageInput" 
+        placeholder="Type your message here... (Press Enter to send)"
+        rows="3"
+      ></textarea>
+      <button id="sendBtn" class="send-btn">Send</button>
+    </div>
+    
+    <div class="status" id="status"></div>
+  </div>
+  
+  <script src="chat.js"></script>
+</body>
+</html>
